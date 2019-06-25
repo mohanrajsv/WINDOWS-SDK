@@ -7,7 +7,6 @@ using namespace std;
 
 void QueryKey(HKEY hKey,HKEY hDestKey) 
 {
-    HKEY val;
     TCHAR achClass[MAX_PATH];                   // buffer for class name & max_path sizw is 260 here
     DWORD cchClassName = MAX_PATH;                // size of class string 
     DWORD cSubKeys=0;                            // number of subkeys 
@@ -37,8 +36,8 @@ void QueryKey(HKEY hKey,HKEY hDestKey)
         &cbMaxValueData,         
         &cbSecurityDescriptor,  
         &ftLastWriteTime);     
- 	lpName = (LPSTR)malloc(cchMaxValue);
-    lpData = (LPSTR)malloc(cbMaxValueData);
+ 	lpName = (LPSTR)malloc(50*cchMaxValue);
+    lpData = (LPSTR)malloc(50*cbMaxValueData);
     if(retCode!=ERROR_SUCCESS)
         return;
 
@@ -47,10 +46,11 @@ void QueryKey(HKEY hKey,HKEY hDestKey)
         system("cls");
         for (i=0;i<cValues; i++) 
         {
-            cchValue = MAX_VALUE_NAME; 
-            retCode = RegEnumValue(hKey, i, lpName, &cchValue, NULL, &type, (LPBYTE)lpData, &cbMaxValueData);
-            result = RegOpenKeyEx(hKey, lpName, 0, KEY_READ, &hDestKey);
-            RegSetValueEx(hDestKey, lpName, 0, type, (LPBYTE)lpData, cbMaxValueData);
+            cchValue = cchMaxValue; 
+            DWORD dSize=cbMaxValueData;
+            retCode = RegEnumValue(hKey, i, lpName, &cchValue, NULL, &type, (LPBYTE)lpData, &dSize);
+            
+            RegSetValueEx(hDestKey, lpName, 0, type, (LPBYTE)lpData, dSize);
         }
     }
 	
