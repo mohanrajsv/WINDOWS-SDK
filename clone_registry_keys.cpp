@@ -49,8 +49,7 @@ void QueryKey(HKEY hKey,HKEY hDestKey)
         {
             cchValue = MAX_VALUE_NAME; 
             retCode = RegEnumValue(hKey, i, lpName, &cchValue, NULL, &type, (LPBYTE)lpData, &cbMaxValueData);
-            RegOpenKey(hKey,subkey,&key);
-            result = RegOpenKeyEx(hKey, lpName, 0L, KEY_READ, &val);
+            result = RegOpenKeyEx(hKey, lpName, 0, KEY_READ, &hDestKey);
             RegSetValueEx(hDestKey, lpName, 0, type, (LPBYTE)lpData, cbMaxValueData);
         }
     }
