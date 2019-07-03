@@ -2,6 +2,7 @@
 #include <iostream>
 #define MAX_NAME 512
 using namespace std;
+
 SERVICE_STATUS ServiceStatus = { 0 };
 SERVICE_STATUS_HANDLE hServiceStatusHandle = NULL;
 HANDLE hServiceEvent = NULL;
@@ -11,202 +12,7 @@ LPCTSTR szSvcName = L"aftrnoon"; 		// Registry Subkey
 LPCTSTR lpszBinaryPathName = L"C:\\Users\\Administrator\\source\\repos\\serviceADemo\\Debug\\serviceADemo.exe"; ///exe file
 
 
-void ServiceReportStatus(
-	DWORD dwCurrentState,
-	DWORD dwWin32ExitCode,
-	DWORD dwWaitHint)
-{
-	static DWORD dwCheckPoint = 1;
-	BOOL bSetServiceStatus = FALSE;
-
-	ServiceStatus.dwCurrentState = dwCurrentState;
-	ServiceStatus.dwWin32ExitCode = dwWin32ExitCode;
-	ServiceStatus.dwWaitHint = dwWaitHint;
-	if (dwCurrentState == SERVICE_START_PENDING)
-	{
-		ServiceStatus.dwControlsAccepted = 0;
-	}
-	else
-		ServiceStatus.dwControlsAccepted = SERVICE_ACCEPT_STOP;
-
-	if (dwCurrentState == SERVICE_RUNNING || dwCurrentState == SERVICE_STOPPED)
-		ServiceStatus.dwCheckPoint = 0;
-	else
-		ServiceStatus.dwCheckPoint = dwCheckPoint++;
-
-	bSetServiceStatus = SetServiceStatus(hServiceStatusHandle, &ServiceStatus);
-
-	if (FALSE == bSetServiceStatus)
-		cout << "Service status failed\n";
-}
-void  ServiceControlHandler(DWORD dwControl)
-{
-	switch (dwControl)
-	{
-	case SERVICE_CONTROL_STOP:
-		cout << "SERVICE STOPED\n";
-		ServiceReportStatus(SERVICE_STOPPED, NO_ERROR, 0);
-		break;
-	default:
-		break;
-	}
-}
-
-void ServiceInit(DWORD dwArgc, LPSTR* lpArgv)
-{
-	hServiceEvent = CreateEvent(
-		NULL,
-		TRUE,
-		FALSE,
-		NULL
-	);
-	if (NULL == hServiceEvent)
-	{
-		ServiceReportStatus(SERVICE_STOPPED, NO_ERROR, 0);
-	}
-	else
-		ServiceReportStatus(SERVICE_RUNNING, NO_ERROR, 0);
-	while (1) {
-		WaitForSingleObject(hServiceEvent, INFINITE);
-		ServiceReportStatus(SERVICE_STOPPED, NO_ERROR, 0);
-	}
-
-}
-void  ServiceMain(DWORD dwArgc, LPSTR* lpArgv)
-{
-	cout << "SERVICE MAIN START\n";
-	BOOL bServiceStatus = FALSE;
-	hServiceStatusHandle = RegisterServiceCtrlHandler(
-		szSvcName,
-		(LPHANDLER_FUNCTION)ServiceControlHandler
-	);
-	if (NULL != hServiceStatusHandle) {
-		cout << "Regsister servicectrHandler failed";
-	}
-	else
-		cout << "RegisterCtrlServiceDispatcher Succeess!";
-
-	ServiceStatus.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
-	ServiceStatus.dwServiceSpecificExitCode = 0;
-
-	ServiceReportStatus(SERVICE_START_PENDING, NO_ERROR, 3000);
-
-	bServiceStatus = SetServiceStatus(hServiceStatusHandle, &ServiceStatus);
-	if (FALSE == bServiceStatus)
-		cout << "SERVICE STATUS INITIA SETUP ERROR\n";
-	ServiceInit(dwArgc, lpArgv);
-}
-void deleteSvc()
-{
-	SC_HANDLE schSCManager, tmpHandle;
-	schSCManager = OpenSCManager(
-		NULL,                    // local computer
-		NULL,                    // servicesActive database 
-		SC_MANAGER_ALL_ACCESS);  // full access rights 
-
-	if (NULL == schSCManager)
-	{
-		printf("OpenSCManager failed (%d)\n", GetLastError());
-		return;
-	}
-
-	tmpHandle = OpenServiceW(
-		schSCManager,         // SCM database 
-		szSvcName,            // name of service 
-		DELETE);  
-
-	if (tmpHandle == NULL)
-	{
-		printf("OpenService failed (%d)\n", GetLastError());
-		CloseServiceHandle(schSCManager);
-		return;
-	}
-	if (DeleteService(tmpHandle))
-	{
-		wcout << "\nservice " << szSvcName << " successfully deleted!\n";
-	}
-	else
-		cout << "ERROR ON DELETING SERVICE";
-	CloseServiceHandle(schSCManager);
-	CloseServiceHandle(tmpHandle);
-}
-
-void start()
-{
-	SC_HANDLE schSCManager, schService, tmpHandle;
-
-	SERVICE_STATUS_PROCESS ssStatus;
-	DWORD dwStartTickCount;
-	DWORD dwWaitTime;
-	DWORD dwBytesNeeded;
-
-	schSCManager = OpenSCManager(
-		NULL,                    // local computer
-		NULL,                    // servicesActive database 
-		SC_MANAGER_ALL_ACCESS);  // full access rights 
-
-	if (NULL == schSCManager)
-	{
-		printf("OpenSCManager failed (%d)\n", GetLastError());
-		return;
-	}
-	tmpHandle = OpenServiceW(
-		schSCManager,         // SCM database 
-		szSvcName,            // name of service 
-		SERVICE_ALL_ACCESS | SERVICE_START);  // full access 
-	if (tmpHandle == NULL)
-	{
-		printf("OpenService failed (%d)\n", GetLastError());
-		CloseServiceHandle(schSCManager);
-		return;
-	}
-	QueryServiceStatusEx(
-		tmpHandle,                     // handle to service 
-		SC_STATUS_PROCESS_INFO,         // info level
-		(LPBYTE)& ssStatus,             // address of structure
-		sizeof(SERVICE_STATUS_PROCESS), // size of structure
-		&dwBytesNeeded);
-
-
-	if (!StartService(
-		tmpHandle,  // handle to service 
-		0,           // number of arguments 
-		NULL))      // no arguments 
-	{
-		printf("StartService failed (%d)\n", GetLastError());
-		CloseServiceHandle(tmpHandle);
-		CloseServiceHandle(schSCManager);
-		return;
-	}
-	else printf("Service start pending...\n");
-
-	if (!QueryServiceStatusEx(
-		tmpHandle,                     // handle to service 
-		SC_STATUS_PROCESS_INFO,         // info level
-		(LPBYTE)& ssStatus,             // address of structure
-		sizeof(SERVICE_STATUS_PROCESS), // size of structure
-		&dwBytesNeeded))              // if buffer too small
-	{
-		printf("QueryServiceStatusEx failed (%d)\n", GetLastError());
-		CloseServiceHandle(tmpHandle);
-		CloseServiceHandle(schSCManager);
-		return;
-	}
-
-	if (ssStatus.dwCurrentState == SERVICE_RUNNING)
-	{
-		printf("Service started successfully.\n");
-	}
-	else
-	{
-		printf("Service not started. \n");
-		printf("  Current State: %d\n", ssStatus.dwCurrentState);
-		printf("  Exit Code: %d\n", ssStatus.dwWin32ExitCode);
-	}
-	CloseServiceHandle(tmpHandle);
-	CloseServiceHandle(schSCManager);
-}
-
+//////////////////token function
 
 BOOL SearchTokenGroupsForSID(VOID)
 {
@@ -278,21 +84,225 @@ BOOL SearchTokenGroupsForSID(VOID)
 					return FALSE;
 				}
 			}
-			printf("\n\nToken INFORMATION\nCurrent user domain : %s\n Group :%s\n\n",
+			printf("\n\nToken INFORMATION :\nCurrent user domain : %s\n Group :%s\n\n",
 				lpDomain, lpName);
 		}
 	}
 	if (pSID)
 		FreeSid(pSID);
+
 	if (pGroupInfo)
 		GlobalFree(pGroupInfo);
 	return TRUE;
 }
 
+///report status t scm
+void ServiceReportStatus(DWORD dwCurrentState,DWORD dwWin32ExitCode,DWORD dwWaitHint)
+{
+	static DWORD dwCheckPoint = 1;
+	BOOL bSetServiceStatus = FALSE;
+
+	ServiceStatus.dwCurrentState = dwCurrentState;
+	ServiceStatus.dwWin32ExitCode = dwWin32ExitCode;
+	ServiceStatus.dwWaitHint = dwWaitHint;
+
+	if (dwCurrentState == SERVICE_START_PENDING)
+		ServiceStatus.dwControlsAccepted = 0;
+	else
+		ServiceStatus.dwControlsAccepted = SERVICE_ACCEPT_STOP;
+
+	if (dwCurrentState == SERVICE_RUNNING || dwCurrentState == SERVICE_STOPPED)
+		ServiceStatus.dwCheckPoint = 0;
+	else
+		ServiceStatus.dwCheckPoint = dwCheckPoint++;
+
+	bSetServiceStatus = SetServiceStatus(hServiceStatusHandle, &ServiceStatus);
+
+	if (FALSE == bSetServiceStatus)
+		cout << "Service status failed\n";
+}
+
+void  ServiceControlHandler(DWORD dwControl)
+{
+	switch (dwControl)
+	{
+	case SERVICE_CONTROL_STOP:
+		cout << "SERVICE STOPED\n";
+		ServiceReportStatus(SERVICE_STOPPED, NO_ERROR, 0);
+		break;
+	case SERVICE_CONTROL_INTERROGATE:
+		break;
+	case SERVICE_CONTROL_PAUSE:
+		break;
+	case SERVICE_CONTROL_CONTINUE:
+		break;
+
+	default:
+		break;
+	}
+}
+
+void ServiceInit(DWORD dwArgc, LPSTR* lpArgv)
+{
+	hServiceEvent = CreateEvent(
+		NULL,
+		TRUE,
+		FALSE,
+		NULL
+	);
+	if (NULL == hServiceEvent)
+		ServiceReportStatus(SERVICE_STOPPED, NO_ERROR, 0);
+	else
+		ServiceReportStatus(SERVICE_RUNNING, NO_ERROR, 0);
+	while (1) {
+		WaitForSingleObject(hServiceEvent, INFINITE);
+		ServiceReportStatus(SERVICE_STOPPED, NO_ERROR, 0);
+	}
+}
+
+void  ServiceMain(DWORD dwArgc, LPSTR* lpArgv)
+{
+	BOOL bServiceStatus = FALSE;
+	hServiceStatusHandle = RegisterServiceCtrlHandler(szSvcName,(LPHANDLER_FUNCTION)ServiceControlHandler);
+	if (NULL != hServiceStatusHandle)
+		cout << "Regsister servicectrHandler failed";
+	else
+		cout << "RegisterCtrlServiceDispatcher Succeess!";
+
+	ServiceStatus.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
+	ServiceStatus.dwServiceSpecificExitCode = 0;
+	ServiceReportStatus(SERVICE_START_PENDING, NO_ERROR, 3000);
+
+	bServiceStatus = SetServiceStatus(hServiceStatusHandle, &ServiceStatus);
+	if (FALSE == bServiceStatus)
+		cout << "SERVICE STATUS INITIAL SETUP ERROR\n";
+	ServiceInit(dwArgc, lpArgv);
+}
+
+
+void deleteSvc()
+{
+	SC_HANDLE schSCManager, tmpHandle;
+	schSCManager = OpenSCManager(
+		NULL,                    // local computer
+		NULL,                    // servicesActive database 
+		SC_MANAGER_ALL_ACCESS);  // full access rights 
+
+	if (NULL == schSCManager)
+	{
+		printf("OpenSCManager failed (%d)\n", GetLastError());
+		return;
+	}
+
+	tmpHandle = OpenServiceW(
+		schSCManager,         // SCM database 
+		szSvcName,            // name of service 
+		DELETE);  
+
+	if (tmpHandle == NULL)
+	{
+		printf("OpenService failed (%d)\n", GetLastError());
+		CloseServiceHandle(schSCManager);
+		return;
+	}
+	if (!DeleteService(tmpHandle))
+	{
+		printf("DeleteService failed (%d)\n", GetLastError());
+	}
+	else printf("Service deleted successfully\n");
+
+	
+	CloseServiceHandle(schSCManager);
+	CloseServiceHandle(tmpHandle);
+}
+
+void start()
+{
+	SC_HANDLE schSCManager, schService, tmpHandle;
+
+	SERVICE_STATUS_PROCESS ssStatus;
+	DWORD dwStartTickCount;
+	DWORD dwWaitTime;
+	DWORD dwBytesNeeded;
+
+	schSCManager = OpenSCManager(
+		NULL,                    // local computer
+		NULL,                    // servicesActive database 
+		SC_MANAGER_ALL_ACCESS);  // full access rights 
+
+	if (NULL == schSCManager)
+	{
+		printf("OpenSCManager failed (%d)\n", GetLastError());
+		return;
+	}
+	tmpHandle = OpenServiceW(
+		schSCManager,         // SCM database 
+		szSvcName,            // name of service 
+		SERVICE_ALL_ACCESS | SERVICE_START);  // full access 
+	if (tmpHandle == NULL)
+	{
+		printf("OpenService failed (%d)\n", GetLastError());
+		CloseServiceHandle(schSCManager);
+		return;
+	}
+	QueryServiceStatusEx(
+		tmpHandle,                     // handle to service 
+		SC_STATUS_PROCESS_INFO,         // info level
+		(LPBYTE)& ssStatus,             // address of structure
+		sizeof(SERVICE_STATUS_PROCESS), // size of structure
+		&dwBytesNeeded);
+
+	if (!StartService(
+		tmpHandle,  // handle to service 
+		0,           // number of arguments 
+		NULL))      // no arguments 
+	{
+		DWORD ERR = GetLastError();
+		if (ERR == 1056)
+			cout << "\nthe service is already running..\n";
+		else if (ERR == 1058)
+			cout << "\nThe service cannot be started, either because it is disabled or because it has no enabled devices associated with it.\n";
+		else
+		printf("StartService failed (%d)\n", GetLastError());
+		CloseServiceHandle(tmpHandle);
+		CloseServiceHandle(schSCManager);
+		return;
+	}
+	else
+		cout << "\nSTATRING.....!\n";
+	if (!QueryServiceStatusEx(
+		tmpHandle,                     // handle to service 
+		SC_STATUS_PROCESS_INFO,         // info level
+		(LPBYTE)& ssStatus,             // address of structure
+		sizeof(SERVICE_STATUS_PROCESS), // size of structure
+		&dwBytesNeeded))              // if buffer too small
+	{
+		printf("QueryServiceStatusEx failed (%d)\n", GetLastError());
+		CloseServiceHandle(tmpHandle);
+		CloseServiceHandle(schSCManager);
+		return;
+	}
+	while (ssStatus.dwCurrentState == SERVICE_START_PENDING) {
+	
+		if (!QueryServiceStatusEx(tmpHandle, SC_STATUS_PROCESS_INFO, (LPBYTE)& ssStatus, sizeof(SERVICE_STATUS_PROCESS), &dwBytesNeeded)) {
+			cout << "QueryServiceStatusEx Failed " << GetLastError() << endl;
+			break;
+		}
+
+	}
+	if (ssStatus.dwCurrentState == SERVICE_RUNNING)
+		printf("Service started successfully.\n");
+	else
+		printf("Service not started. \n");
+	CloseServiceHandle(tmpHandle);
+	CloseServiceHandle(schSCManager);
+}
+
+
+
 void install()
 {
 	SC_HANDLE schSCManager, schService, tmpHandle;
-	// Get a handle to the SCM database. 
 	schSCManager = OpenSCManager(
 		NULL,                    // local computer
 		NULL,                    // servicesActive database 
@@ -321,11 +331,17 @@ void install()
 
 	if (schService == NULL)
 	{
+		DWORD ERR = GetLastError();
+		if (ERR == 1073)
+			cout << "\nThe specified service already exists.\n";
+		else
 		printf("specified Service already exist or CreateService failed (%d)\n", GetLastError());
 		CloseServiceHandle(schSCManager);
 		return;
 	}
-	else printf("\nService installed successfully\n");
+	else 
+		printf("\nService installed successfully\n");
+
 	CloseServiceHandle(schService);
 	CloseServiceHandle(schSCManager);
 }
@@ -375,15 +391,21 @@ void stop()
 
 		CloseServiceHandle(hScOpenService);
 		CloseServiceHandle(hScOpenSCMnanager);
+		return;
 	}
 	bControlService = ControlService(
 		hScOpenService,
 		SERVICE_CONTROL_STOP,
 		(LPSERVICE_STATUS)& SvcStatusProcess);
 	if (TRUE != bControlService) {
-		cout << "CONTROL SERVICE FAILURED";
+		DWORD err = GetLastError();
+		if(err==1062)
+			cout << "The service has not been started.\n";
+		else
+			cout << "CONTROL SERVICE FAILURED "<< GetLastError();
 		CloseServiceHandle(hScOpenService);
 		CloseServiceHandle(hScOpenSCMnanager);
+		return;
 	}
 	while (SvcStatusProcess.dwCurrentState != SERVICE_STOPPED)
 	{
@@ -398,13 +420,108 @@ void stop()
 			cout << "QUERY FAILED";
 			CloseServiceHandle(hScOpenService);
 			CloseServiceHandle(hScOpenSCMnanager);
-			
 		}
 	}
 
 	CloseServiceHandle(hScOpenService);
 	CloseServiceHandle(hScOpenSCMnanager);
 	cout << "SERVICE STOPPED";
+}
+
+VOID __stdcall DoEnableSvc()
+{
+	SC_HANDLE schSCManager;
+	SC_HANDLE schService;
+	schSCManager = OpenSCManager(
+		NULL,                    // local computer
+		NULL,                    // ServicesActive database 
+		SC_MANAGER_ALL_ACCESS);  // full access rights 
+	if (NULL == schSCManager)
+	{
+		printf("OpenSCManager failed (%d)\n", GetLastError());
+		return;
+	}
+	schService = OpenService(
+		schSCManager,            // SCM database 
+		szSvcName,               // name of service 
+		SERVICE_CHANGE_CONFIG);  // need change config access 
+
+	if (schService == NULL)
+	{
+		printf("OpenService failed (%d)\n", GetLastError());
+		CloseServiceHandle(schSCManager);
+		return;
+	}
+
+	// Change the service start type.
+
+	if (!ChangeServiceConfig(
+		schService,            // handle of service 
+		SERVICE_NO_CHANGE,     // service type: no change 
+		SERVICE_DEMAND_START,  // service start type 
+		SERVICE_NO_CHANGE,     // error control: no change 
+		NULL,                  // binary path: no change 
+		NULL,                  // load order group: no change 
+		NULL,                  // tag ID: no change 
+		NULL,                  // dependencies: no change 
+		NULL,                  // account name: no change 
+		NULL,                  // password: no change 
+		NULL))                // display name: no change
+	{
+		printf("ChangeServiceConfig failed (%d)\n", GetLastError());
+	}
+	else printf("Service enabled successfully.\n");
+
+	CloseServiceHandle(schService);
+	CloseServiceHandle(schSCManager);
+}
+
+void  DoDisableSvc()
+{
+	SC_HANDLE schSCManager;
+	SC_HANDLE schService;
+	schSCManager = OpenSCManager(
+		NULL,                    // local computer
+		NULL,                    // ServicesActive database 
+		SC_MANAGER_ALL_ACCESS);  // full access rights 
+
+	if (NULL == schSCManager)
+	{
+		printf("OpenSCManager failed (%d)\n", GetLastError());
+		return;
+	}
+	schService = OpenService(
+		schSCManager,            // SCM database 
+		szSvcName,               // name of service 
+		SERVICE_CHANGE_CONFIG);  // need change config access 
+
+	if (schService == NULL)
+	{
+		printf("OpenService failed (%d)\n", GetLastError());
+		CloseServiceHandle(schSCManager);
+		return;
+	}
+
+	// Change the service start type.
+
+	if (!ChangeServiceConfig(
+		schService,        // handle of service 
+		SERVICE_NO_CHANGE, // service type: no change 
+		SERVICE_DISABLED,  // service start type 
+		SERVICE_NO_CHANGE, // error control: no change 
+		NULL,              // binary path: no change 
+		NULL,              // load order group: no change 
+		NULL,              // tag ID: no change 
+		NULL,              // dependencies: no change 
+		NULL,              // account name: no change 
+		NULL,              // password: no change 
+		NULL))            // display name: no change
+	{
+		printf("ChangeServiceConfig failed (%d)\n", GetLastError());
+	}
+	else printf("Service disabled successfully.\n");
+	CloseServiceHandle(schService);
+	CloseServiceHandle(schSCManager);
 }
 
 int main(void)
@@ -420,15 +537,14 @@ int main(void)
 		cout << "\nFILE EXPLORER IS OPENED SUCCESSFULLY!\n";
 	cout << "\n---------------------------------------\n";
 	SearchTokenGroupsForSID();
-
 	SERVICE_TABLE_ENTRY ste[] = { {(LPWSTR)szSvcName, (LPSERVICE_MAIN_FUNCTION)ServiceMain}, {NULL, NULL} };
 	TCHAR error[256];
 	if (!StartServiceCtrlDispatcher(ste))
 		wsprintf(error, TEXT("Error code for StartServiceCtrlDispatcher(): %u.\n"), GetLastError());
 	cout << "\n---------------------------------------\n";
-	cout << "\t\Services :";
-	cout << "\n0) Install\t1) Start\t2) Delete\t3) Stop\t4) Exit ";
-	cout << "\nEnter : (0/1/2/3/4)\t";
+	cout << "Services :\n";
+	cout << "\n0) Install\n1) Start\n2) Delete\n3) Stop\n4) Enable\n5) Disable\n6) EXit \n";
+	cout << "\CHOOSE : (0 / 1 / 2 / 3 / 4 / 5 / 6)\t: ";
 	cin >> ch;
 	do {
 		if (ch == 0)
@@ -439,16 +555,19 @@ int main(void)
 			deleteSvc();
 		else if (ch == 3)
 			stop();
-		else if (ch == 4) {
+		else if (ch == 6) {
 			CloseHandle(pi.hProcess);
 			CloseHandle(pi.hThread);
 			exit(0);
 		}
+		else if (ch == 4)
+			DoEnableSvc();
+		else if (ch == 5)
+			DoDisableSvc();
+
 		cout << "\n\tEnter choice :\t";
 		cin >> ch;
-	} while (ch != 4);
-	// Wait until child process exits.
-
+	} while (ch != 6);
 	CloseHandle(pi.hProcess);
 	CloseHandle(pi.hThread);
 	return 0;
