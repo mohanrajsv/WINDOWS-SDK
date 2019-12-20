@@ -1,13 +1,8 @@
-#include <iostream>
+#include <stdio.h>
 #include <tchar.h>
-#include <objbase.h>  
 #include <msxml6.h>
 #include "sqlite3.h";
 #include <string>
-using namespace std;
-
-#pragma comment(lib, "sqlite3.lib")
-using namespace std;
 // Macro that calls a COM method returning HRESULT value.
 #define CHK_HR(stmt)        do { hr=(stmt); if (FAILED(hr)) goto CleanUp; } while(0)
 // Macro to verify memory allcation.
@@ -15,17 +10,13 @@ using namespace std;
 // Macro that releases a COM object if not NULL.
 #define SAFE_RELEASE(p)     do { if ((p)) { (p)->Release(); (p) = NULL; } } while(0)
 // Helper function to create a VT_BSTR variant from a null terminated string. 
-void processNode(IXMLDOMNode *);
-static int callback(void* NotUsed, int argc, char** argv, char** azColName)
-{
-    int i;
-    for (i = 0; i < argc; i++)
-    {
-        printf("%s = %s\n", azColName[i], argv[i] ? argv[i] : "NULL");
-    }
-    printf("\n");
-    return 0;
-}
+#pragma comment(lib, "sqlite3.lib")
+IXMLDOMDocument* pXMLDom = NULL;
+IXMLDOMElement* pRoot = NULL;
+IXMLDOMElement* pNode = NULL;
+IXMLDOMElement* pSubNode = NULL;
+IXMLDOMDocumentFragment* pDF = NULL;
+
 HRESULT VariantFromString(PCWSTR wszValue, VARIANT& Variant)
 {
     HRESULT hr = S_OK;
@@ -38,204 +29,227 @@ CleanUp:
     return hr;
 }
 
-// Helper function to create a DOM instance. 
 HRESULT CreateAndInitDOM(IXMLDOMDocument** ppDoc)
 {
     HRESULT hr = CoCreateInstance(__uuidof(DOMDocument60), NULL, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(ppDoc));
-   
     return hr;
 }
 
-/*
-void processNode(IXMLDOMNode* pNode)
+HRESULT CreateElement(IXMLDOMDocument* pXMLDom, PCWSTR wszName, IXMLDOMElement** ppElement)
 {
-    
-    BSTR name = NULL;
-    BSTR root = (BSTR)"student";
-    BSTR text;
-    HRESULT hRes = pNode->get_nodeName(&name);
-    if (SUCCEEDED(hRes))
-    {
-        printf("%S : ", name);
-        
-    }
-    if (name == root)
-    {
-        pNode->get_text(&text);
-        printf(" %S\n", text);
+    HRESULT hr = S_OK;
+    // *ppElement = NULL;
+    BSTR bstrName = SysAllocString(wszName);
+    CHK_ALLOC(bstrName);
+    CHK_HR(pXMLDom->createElement(bstrName, ppElement));
 
-    }
-    SysFreeString(name);
-
-    IXMLDOMNode* pChild = NULL;
-    hRes = pNode->get_firstChild(&pChild);
-    if (hRes == S_OK)
-    {
-        do
-        {
-            DOMNodeType type;
-            hRes = pChild->get_nodeType(&type);
-            if (SUCCEEDED(hRes) && type == NODE_ELEMENT)
-            {
-                processNode(pChild);              
-            }             
-
-                IXMLDOMNode * pSibling = NULL;
-                hRes = pChild->get_nextSibling(&pSibling);
-                if (hRes != S_OK) break;
-
-                pChild->Release();
-                pChild = pSibling;
-              
-               
-        } while (true);
-
-                pChild->Release();
-    }
+CleanUp:
+    SysFreeString(bstrName);
+    return hr;
 }
-*/
 
-void read()
+HRESULT AppendChildToParent(IXMLDOMNode* pChild, IXMLDOMNode* pParent)
 {
-    int round = 0;
+    HRESULT hr = S_OK;
+    IXMLDOMNode* pChildOut = NULL;
+    CHK_HR(pParent->appendChild(pChild, &pChildOut));
+
+CleanUp:
+    SAFE_RELEASE(pChildOut);
+    return hr;
+}
+
+HRESULT CreateAndAddPINode(IXMLDOMDocument* pDom, PCWSTR wszTarget, PCWSTR wszData)
+{
+    HRESULT hr = S_OK;
+    IXMLDOMProcessingInstruction* pPI = NULL;
+    BSTR bstrTarget = SysAllocString(wszTarget);
+    BSTR bstrData = SysAllocString(wszData);
+    CHK_ALLOC(bstrTarget);
+    CHK_ALLOC(bstrData);
+    CHK_HR(pDom->createProcessingInstruction(bstrTarget, bstrData, &pPI));
+    CHK_HR(AppendChildToParent(pPI, pDom));
+CleanUp:
+    SAFE_RELEASE(pPI);
+    SysFreeString(bstrTarget);
+    SysFreeString(bstrData);
+    return hr;
+}
+
+HRESULT CreateAndAddTextNode(IXMLDOMDocument* pDom, PCWSTR wszText, IXMLDOMNode* pParent)
+{
+    HRESULT hr = S_OK;
+    IXMLDOMText* pText = NULL;
+    BSTR bstrText = SysAllocString(wszText);
+    CHK_ALLOC(bstrText);
+    CHK_HR(pDom->createTextNode(bstrText, &pText));
+    CHK_HR(AppendChildToParent(pText, pParent));
+
+CleanUp:
+    SAFE_RELEASE(pText);
+    SysFreeString(bstrText);
+    return hr;
+}
+
+// Helper function to create and append an element node to a parent node, and pass the newly created
+// element node to caller if it wants.
+HRESULT CreateAndAddElementNode(IXMLDOMDocument* pDom, PCWSTR wszName, PCWSTR wszNewline, IXMLDOMNode* pParent, IXMLDOMElement** ppElement = NULL)
+{
+    HRESULT hr = S_OK;
+    IXMLDOMElement* pElement = NULL;
+    CHK_HR(CreateElement(pDom, wszName, &pElement));
+    // Add NEWLINE+TAB for identation before this element.
+    CHK_HR(CreateAndAddTextNode(pDom, wszNewline, pParent));
+    // Append this element to parent.
+    CHK_HR(AppendChildToParent(pElement, pParent));
+
+CleanUp:
+    if (ppElement)
+        *ppElement = pElement;  // Caller is repsonsible to release this element.
+    else
+        SAFE_RELEASE(pElement); // Caller is not interested on this element, so release it.
+
+    return hr;
+}
+
+static int callback(void* NotUsed, int argc, char** argv, char** azColName)
+{
+    HRESULT hr = S_OK;
+    BSTR bstrXML = NULL;
+    VARIANT varFileName;
+    VariantInit(&varFileName);
+    int i;
+    for (i = 0; i < argc; i++)
+    {
+       //printf("%s = %s\n", azColName[i], argv[i] ? argv[i] : "NULL");
+        wchar_t wtext[50], wtext2[50];
+        mbstowcs(wtext, azColName[i], strlen(azColName[i]) + 1);//Plus null
+        mbstowcs(wtext2, argv[i], strlen(argv[i]) + 1);//Plus null
+        LPWSTR ptr = wtext;
+        LPWSTR ptr2 = wtext2;
+        CHK_HR(CreateAndAddElementNode(pXMLDom, ptr, L"\n\t", pRoot, &pNode));
+        CHK_HR(CreateAndAddTextNode(pXMLDom, ptr2, pNode));
+        SAFE_RELEASE(pNode);       
+    }
+    CHK_HR(CreateAndAddTextNode(pXMLDom, L"\n", pRoot));
+CleanUp:
+    return 0;
+}
+
+void write()
+{
     sqlite3* db;
-    sqlite3* db2;
     char* sql;
-    char* createDB;
-    string tsql;
     char* zErrMsg = 0;
     int rc;
-
     rc = sqlite3_open("ex3.db", &db);
     if (rc)
     {
         fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(db));
         return;
     }
-    /*
-    createDB = (char*)"CREATE TABLE student2("  \
-        "id INT PRIMARY KEY     NOT NULL," \
-        "name           TEXT    NOT NULL," \
-        "department TEXT NOT NULL);";
-
-    rc = sqlite3_exec(db, createDB, callback, 0, &zErrMsg);
-
-    if (rc != SQLITE_OK) {
-        fprintf(stderr, "SQL error: %s\n", zErrMsg);
-        sqlite3_free(zErrMsg);
-    }
-    else {
-        fprintf(stdout, "Table created successfully\n");
-    }*/
-
+    sqlite3_stmt* stmt;
     HRESULT hr = S_OK;
-    IXMLDOMDocument* pXMLDom = NULL;
-    IXMLDOMParseError* pXMLErr = NULL;
-    IXMLDOMElement* pIXMLDOMElement = NULL;
-    IXMLDOMNodeList* pNodes = NULL;
     BSTR bstrXML = NULL;
-    BSTR bstrErr = NULL;
-    VARIANT_BOOL varStatus;
     VARIANT varFileName;
     VariantInit(&varFileName);
     CHK_HR(CreateAndInitDOM(&pXMLDom));
+    // Create a processing instruction element.
+    CHK_HR(CreateAndAddPINode(pXMLDom, L"xml", L"version='1.0'"));
+    // Create the root element.
+    CHK_HR(CreateElement(pXMLDom, L"student", &pRoot));
 
-    pXMLDom->put_async(VARIANT_FALSE);
-    pXMLDom->put_validateOnParse(VARIANT_TRUE);
-    pXMLDom->put_resolveExternals(VARIANT_FALSE);
-    pXMLDom->put_preserveWhiteSpace(VARIANT_FALSE); // <--
+    ///////////////////////////////////////////////////
+    sql = (char*)"SELECT * FROM student2";
+    rc = sqlite3_exec(db, sql, callback, NULL, &zErrMsg);
+    if (rc != SQLITE_OK)
+    {
+        fprintf(stderr, "SQL error: %s\n", zErrMsg);
+        sqlite3_free(zErrMsg);
+    }
+    else 
+    {
+        fprintf(stdout, "Operation done successfully\n");
+    }
+    ////////////////////////////////////////////////////
 
+    // Add NEWLINE for identation before </root>.
+    CHK_HR(CreateAndAddTextNode(pXMLDom, L"\n", pRoot));
+    // add <root> to document
+    CHK_HR(AppendChildToParent(pRoot, pXMLDom));
+    CHK_HR(pXMLDom->get_xml(&bstrXML));
+   // printf("XML DATA :\n%S\n", bstrXML);
     CHK_HR(VariantFromString(L"student.xml", varFileName));
-    CHK_HR(pXMLDom->load(varFileName, &varStatus));
-
-    if (varStatus == VARIANT_TRUE)
-    {
-        BSTR bstrQuery = NULL;
-        IXMLDOMNode* pNode = NULL;
-        IXMLDOMNode* pNodeD = NULL;
-        BSTR bstrNodeName = NULL; //to store nodename
-        BSTR bstrNodeValue = NULL; //to store node value
-        BSTR text;
-        HRESULT hr;
-        string d_id, d_name, d_depart ;
-        bstrQuery = SysAllocString(L"//student/*");
-        CHK_ALLOC(bstrQuery);
-        CHK_HR(pXMLDom->selectNodes(bstrQuery, &pNodes));
-        if (pNodes)
-        {
-            long length, len2;
-            CHK_HR(pNodes->get_length(&length));
-            for (long i = 0; i < length; i++)
-            {
-                round++;
-                CHK_HR(pNodes->get_item(i, &pNode));
-                CHK_HR(pNode->get_nodeName(&bstrNodeName));
-                
-                if (0 == wcscmp(bstrNodeName, L"id"))
-                {
-                    HRESULT s = pNode->get_text(&text);
-                    wstring t_id(text);
-                     string temp(t_id.begin(), t_id.end());
-                     d_id = temp;                  
-                }
-                if (0 == wcscmp(bstrNodeName, L"name"))
-                {
-                    HRESULT s = pNode->get_text(&text);
-                    wstring t_name(text);
-                    string temp(t_name.begin(), t_name.end());
-                    d_name = temp;
-                }
-                if (0 == wcscmp(bstrNodeName, L"Department"))
-                {
-                    HRESULT s = pNode->get_text(&text);
-                    wstring t_dp(text);
-                    string temp(t_dp.begin(), t_dp.end());
-                    d_depart = temp;
-                }
-
-                if (round == 3) {
-                    tsql = "INSERT INTO student2 (id,name,department) VALUES ('" + d_id + "','" + d_name +
-                        "', '" + d_depart + "')";
-                    //cout << tsql;
-                    const char* sql = tsql.c_str();
-
-                    rc = sqlite3_exec(db, sql, callback, NULL, &zErrMsg);
-                    if (rc != SQLITE_OK)
-                    {
-                        fprintf(stderr, "SQL error: %s\n", zErrMsg);
-                        sqlite3_free(zErrMsg);
-                    }
-                    else {
-                        //fprintf(stdout, "Operation done successfully\n");
-                    }                                   
-                    round = 0;
-                }
-                SysFreeString(bstrNodeName);                
-                SAFE_RELEASE(pNode);
-            }          
-        }
-     fprintf(stdout, "Operation done successfully\n");
-    }
-    else
-    {
-        // Failed to load xml, get last parsing error
-        CHK_HR(pXMLDom->get_parseError(&pXMLErr));
-        CHK_HR(pXMLErr->get_reason(&bstrErr));
-        printf("Failed to load DOM from stocks.xml. %S\n", bstrErr);
-    }
-    sqlite3_close(db);
+    CHK_HR(pXMLDom->save(varFileName));
+    printf("File saved as student.xml\n");
 CleanUp:
     SAFE_RELEASE(pXMLDom);
-    SAFE_RELEASE(pXMLErr);
+    SAFE_RELEASE(pRoot);
+    SAFE_RELEASE(pNode);
+    SAFE_RELEASE(pDF);
+    SAFE_RELEASE(pSubNode);
     SysFreeString(bstrXML);
-    SysFreeString(bstrErr);
     VariantClear(&varFileName);
+    sqlite3_close(db);
 }
 
 int _tmain(int argc, _TCHAR* argv[])
 {
     HRESULT hr = CoInitialize(NULL);
-    read();
-    CoUninitialize();
+    if (SUCCEEDED(hr))
+    {
+        write();
+        CoUninitialize();
+    }
     return 0;
 }
+
+/*
+    rc = sqlite3_prepare(db, "select * from words", 0, &stmt, 0);
+     if (rc != SQLITE_OK) {
+        fprintf(stderr, "sql error #%d: %s\n", rc, sqlite3_errmsg(db));
+    }
+
+
+while ((rc = sqlite3_step(stmt)) != SQLITE_DONE) {
+    switch (rc) {
+    case SQLITE_BUSY:
+        fprintf(stderr, "busy, wait 1 seconds\n");
+        Sleep(1);
+        break;
+    case SQLITE_ERROR:
+        fprintf(stderr, "step error: %s\n", sqlite3_errmsg(db));
+        break;
+    case SQLITE_ROW:
+    {
+        int n = sqlite3_column_count(stmt);
+        int i;
+        for (i = 0; i < n; i++)
+        {
+            printf("%s = ", sqlite3_column_name(stmt, i));
+            switch (sqlite3_column_type(stmt, i)) {
+            case SQLITE_TEXT:
+                printf("%s", sqlite3_column_text(stmt, i));
+                break;
+            case SQLITE_INTEGER:
+                printf("%d", sqlite3_column_int(stmt, i));
+                break;
+            case SQLITE_FLOAT:
+                printf("%f", sqlite3_column_double(stmt, i));
+                break;
+            case SQLITE_BLOB:
+                printf("(blob)");
+                break;
+            case SQLITE_NULL:
+                printf("(null)");
+                break;
+            default:
+                printf("(unknown: %d)", sqlite3_column_type(stmt, i));
+            }
+        }
+    }
+    break;
+
+    }
+}
+*/
